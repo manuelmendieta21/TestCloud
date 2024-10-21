@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Examen App</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.0.3/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body>
+
+    <!-- Contenedor para el formulario de inicio de sesión -->
+    
+ <!-- ------------------------------------------------------------- -->
+
+    <div  id="login-container" class="min-h-screen bg-gray-100 flex flex-col justify-center sm:py-12">
+        <div class="p-10 xs:p-0 mx-auto md:w-full md:max-w-md">
+          <div class="bg-white shadow w-full rounded-lg divide-y divide-gray-200">
+                <div class="px-5 py-7">  
+                    <form id="login-form" class="mt-4">
+                        <input type="text" placeholder="Usuario" id="username" required class="border rounded-lg px-3 py-2 mt-1 mb-5 text-sm w-full"/>
+                        <input type="password" placeholder="Contraseña" id="password" required class="border rounded-lg px-3 py-2 mt-1 mb-5 text-sm w-full"/>
+                        <button type="submit" class="transition duration-200 bg-blue-500 hover:bg-blue-600 focus:bg-blue-700 focus:shadow-sm focus:ring-4 focus:ring-blue-500 focus:ring-opacity-50 text-white w-full py-2.5 rounded-lg text-sm shadow-sm hover:shadow-md font-semibold text-center inline-block">Iniciar Sesión</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+      
+
+
+    <!-- ------------------------------------------------------------- -->
+
+
+    <!-- Contenedor para el test y el temporizador -->
+    <div id="test-container" class="container mx-auto p-4 hidden">
+        <h1 class="text-3xl font-bold">Test</h1>
+        <div id="questions"></div>
+        <div id="timer" class="mt-4 text-xl"></div>
+        <button id="submit-btn" class="bg-green-500 text-white p-2 mt-4">Enviar Respuestas</button>
+    </div>
+
+    <script>
+        // Manejo de inicio de sesión
+
+    const loginForm = document.getElementById('login-form');
+    loginForm.addEventListener('submit', handleLogin);
+
+async function handleLogin(e) {
+    e.preventDefault();
+
+    const username = document.getElementById('username').value;
+    const password = document.getElementById('password').value;
+
+    try {
+        const token = await login(username, password);
+        localStorage.setItem('token', token);
+        toggleVisibility(true); // Muestra el test y oculta el formulario
+        startTest(); // Iniciar el test
+    } catch (error) {
+        alert(error.message); // Muestra el mensaje de error
+    }
+}
+
+async function login(username, password) {
+    const response = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Error en el login'); // Manejo de errores más específico
+    }
+
+    const { token } = await response.json();
+    return token; // Retorna el token si el login fue exitoso
+}
+
+function toggleVisibility(isLoggedIn) {
+    const loginContainer = document.getElementById('login-container');
+    const testContainer = document.getElementById('test-container');
+    
+    if (isLoggedIn) {
+        loginContainer.classList.add('hidden'); // Ocultar formulario
+        testContainer.classList.remove('hidden'); // Mostrar test
+    } else {
+        loginContainer.classList.remove('hidden'); // Mostrar formulario
+        testContainer.classList.add('hidden'); // Ocultar test
+    }
+}
+
+        // Temporizador
+        let timeLeft = 5400; // 90 minutos en segundos
+        const timerDisplay = document.getElementById('timer');
+
+        async function startTest() {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                window.location.href = '/login'; // Redirigir si no está logueado
+            }
+
+            // Llama a la función para obtener preguntas (puedes pasar un ID de test específico)
+            await fetchQuestions(1); // Cambia el ID de test según sea necesario
+
+            // Iniciar temporizador
+            const timer = setInterval(() => {
+                const minutes = Math.floor(timeLeft / 60);
+                const seconds = timeLeft % 60;
+                timerDisplay.textContent = `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+                if (timeLeft <= 0) {
+                    clearInterval(timer);
+                    submitTest(); // Envía las respuestas automáticamente
+                }
+                timeLeft--;
+            }, 1000);
+        }
+
+        async function fetchQuestions(testId) {
+            const token = localStorage.getItem('token');
+            const response = await fetch(`/api/tests/${testId}/questions`, {
+                headers: { 'Authorization': token }
+            });
+            const questions = await response.json();
+
+            const questionsContainer = document.getElementById('questions');
+            questionsContainer.innerHTML = ''; // Limpiar preguntas previas
+
+            questions.forEach(q => {
+                const questionDiv = document.createElement('div');
+                questionDiv.classList.add('my-4');
+                questionDiv.dataset.questionId = q.id; // Añadir el ID de la pregunta
+                questionDiv.innerHTML = `<p>${q.text}</p>`;
+                
+                if (q.type === 'multiple') {
+                    q.options.forEach(o => {
+                        questionDiv.innerHTML += `
+                            <label>
+                                <input type="checkbox" name="question_${q.id}" value="${o.id}" /> ${o.text}
+                            </label>`;
+                    });
+                } else {
+                    q.options.forEach(o => {
+                        questionDiv.innerHTML += `
+                            <label>
+                                <input type="radio" name="question_${q.id}" value="${o.id}" /> ${o.text}
+                            </label>`;
+                    });
+                }
+                questionsContainer.appendChild(questionDiv);
+            });
+        }
+
+        async function submitTest() {
+            const token = localStorage.getItem('token');
+            const answers = [];
+
+            // Recoger respuestas
+            const questionElements = document.querySelectorAll('#questions > div');
+            questionElements.forEach(q => {
+                const questionId = q.dataset.questionId; // Obtener el ID de la pregunta
+                const selectedOption = q.querySelector('input[type="radio"]:checked') || q.querySelector('input[type="checkbox"]:checked');
+
+                if (selectedOption) {
+                    answers.push({
+                        question_id: questionId,
+                        option_id: selectedOption.value
+                    });
+                }
+            });
+
+            const response = await fetch(`/api/tests/1/submit`, { // Cambia el ID de test según sea necesario
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': token
+                },
+                body: JSON.stringify({ answers })
+            });
+
+            const result = await response.json();
+            alert(`Tu puntuación es: ${result.score} \nComentarios: ${JSON.stringify(result.feedback)}`);
+        }
+    </script>
+</body>
+</html>
